@@ -1,4 +1,14 @@
 import fetch from "node-fetch";
+import admin from "firebase-admin";
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(
+      JSON.parse(process.env.FIREBASE_ADMIN_JSON)
+    )
+  });
+}
+const db = admin.firestore();
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -8,11 +18,19 @@ export default async function handler(req, res) {
   try {
     const { amount, userId } = req.body;
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: "Invalid amount" });
+    if (!amount || amount <= 0 || !userId) {
+      return res.status(400).json({ error: "Invalid data" });
     }
 
     const orderId = "order_" + Date.now();
+
+    // 🔒 Save order as PENDING
+    await db.collection("orders").doc(orderId).set({
+      userId,
+      amount,
+      status: "PENDING",
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
 
     const response = await fetch("https://sandbox.cashfree.com/pg/orders", {
       method: "POST",
@@ -27,7 +45,7 @@ export default async function handler(req, res) {
         order_amount: amount,
         order_currency: "INR",
         customer_details: {
-          customer_id: userId || "guest_user",
+          customer_id: userId,
           customer_phone: "9999999999"
         }
       })
@@ -41,7 +59,7 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error("Create order error:", err);
+    console.error(err);
     return res.status(500).json({ error: "Server error" });
   }
 }
